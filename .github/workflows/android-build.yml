@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout repository
@@ -21,12 +21,25 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android components
+      - name: Configure Android SDK
         run: |
-          sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.2"
+          echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=/usr/local/lib/android/sdk" >> $GITHUB_ENV
+          echo "/usr/local/lib/android/sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "/usr/local/lib/android/sdk/platform-tools" >> $GITHUB_PATH
+
+      - name: Install Android packages
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -f "$SDKMANAGER" ]; then
+            SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n 1)
+          fi
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses || true
+          "$SDKMANAGER" --install \
+            "platform-tools" \
+            "platforms;android-33" \
+            "build-tools;33.0.2"
 
       - name: Install Godot 4.3
         run: |
@@ -35,7 +48,7 @@ jobs:
           chmod +x Godot_v4.3-stable_linux.x86_64
           sudo mv Godot_v4.3-stable_linux.x86_64 /usr/local/bin/godot
 
-      - name: Install Godot export templates
+      - name: Install export templates
         run: |
           wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz
           mkdir -p ~/.local/share/godot/export_templates/4.3.stable
@@ -44,23 +57,27 @@ jobs:
 
       - name: Extract game project
         run: |
-          ZIP_FILE=$(find . -maxdepth 1 -name '*.zip' | head -n 1)
-          test -n "$ZIP_FILE"
-          mkdir -p project
+          ZIP_FILE=$(find . -maxdepth 1 -type f -name '*.zip' | head -n 1)
+          if [ -z "$ZIP_FILE" ]; then
+            echo "Game ZIP not found"
+            exit 1
+          fi
+          mkdir project
           unzip -q "$ZIP_FILE" -d project
           test -f project/project.godot
 
-      - name: Configure Godot Android paths
+      - name: Configure Godot
         run: |
           mkdir -p ~/.config/godot
           cat > ~/.config/godot/editor_settings-4.tres <<EOF
-          [gd_resource type="EditorSettings" format=3]
-          [resource]
+          config_version=5
+
+          [export]
           export/android/android_sdk_path = "$ANDROID_HOME"
           export/android/java_sdk_path = "$JAVA_HOME"
           EOF
 
-      - name: Create export preset
+      - name: Create Android preset
         run: |
           cat > project/export_presets.cfg <<'EOF'
           [preset.0]
@@ -98,10 +115,11 @@ jobs:
         run: |
           mkdir -p project/build
           godot --headless --path project --export-debug "Android" project/build/Brawl_Memes.apk
-          test -f project/build/Brawl_Memes.apk
+          test -s project/build/Brawl_Memes.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: BRAWL-MEMES-APK
           path: project/build/Brawl_Memes.apk
+          if-no-files-found: error
