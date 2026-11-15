@@ -10,24 +10,57 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container:
-      image: barichello/godot-ci:4.3
 
     steps:
-      - name: Download repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract game ZIP
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android components
+        run: |
+          sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.2"
+
+      - name: Install Godot 4.3
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip
+          unzip -q Godot_v4.3-stable_linux.x86_64.zip
+          chmod +x Godot_v4.3-stable_linux.x86_64
+          sudo mv Godot_v4.3-stable_linux.x86_64 /usr/local/bin/godot
+
+      - name: Install Godot export templates
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz
+          mkdir -p ~/.local/share/godot/export_templates/4.3.stable
+          unzip -q Godot_v4.3-stable_export_templates.tpz -d /tmp/godot-templates
+          cp /tmp/godot-templates/templates/* ~/.local/share/godot/export_templates/4.3.stable/
+
+      - name: Extract game project
         run: |
           ZIP_FILE=$(find . -maxdepth 1 -name '*.zip' | head -n 1)
-          if [ -z "$ZIP_FILE" ]; then
-            echo "Game ZIP not found!"
-            exit 1
-          fi
+          test -n "$ZIP_FILE"
           mkdir -p project
           unzip -q "$ZIP_FILE" -d project
+          test -f project/project.godot
 
-      - name: Create Android export preset
+      - name: Configure Godot Android paths
+        run: |
+          mkdir -p ~/.config/godot
+          cat > ~/.config/godot/editor_settings-4.tres <<EOF
+          [gd_resource type="EditorSettings" format=3]
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          EOF
+
+      - name: Create export preset
         run: |
           cat > project/export_presets.cfg <<'EOF'
           [preset.0]
@@ -51,15 +84,13 @@ jobs:
           gradle_build/use_gradle_build=false
           architectures/armeabi-v7a=false
           architectures/arm64-v8a=true
-          architectures/x86=false
-          architectures/x86_64=false
           version/code=1
           version/name="1.0"
           package/unique_name="com.brawlmemes.game"
           package/name="Brawl Memes"
           EOF
 
-      - name: Import Godot project
+      - name: Import project
         run: |
           godot --headless --editor --path project --quit
 
@@ -67,6 +98,7 @@ jobs:
         run: |
           mkdir -p project/build
           godot --headless --path project --export-debug "Android" project/build/Brawl_Memes.apk
+          test -f project/build/Brawl_Memes.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
