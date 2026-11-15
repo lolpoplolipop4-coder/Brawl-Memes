@@ -1,0 +1,75 @@
+name: Build BRAWL MEMES Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '*.zip'
+      - '.github/workflows/android-build.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: barichello/godot-ci:4.3
+
+    steps:
+      - name: Download repository
+        uses: actions/checkout@v4
+
+      - name: Extract game ZIP
+        run: |
+          ZIP_FILE=$(find . -maxdepth 1 -name '*.zip' | head -n 1)
+          if [ -z "$ZIP_FILE" ]; then
+            echo "Game ZIP not found!"
+            exit 1
+          fi
+          mkdir -p project
+          unzip -q "$ZIP_FILE" -d project
+
+      - name: Create Android export preset
+        run: |
+          cat > project/export_presets.cfg <<'EOF'
+          [preset.0]
+          name="Android"
+          platform="Android"
+          runnable=true
+          dedicated_server=false
+          custom_features=""
+          export_filter="all_resources"
+          include_filter=""
+          exclude_filter=""
+          export_path="build/Brawl_Memes.apk"
+          encryption_include_filters=""
+          encryption_exclude_filters=""
+          encrypt_pck=false
+          encrypt_directory=false
+
+          [preset.0.options]
+          custom_template/debug=""
+          custom_template/release=""
+          gradle_build/use_gradle_build=false
+          architectures/armeabi-v7a=false
+          architectures/arm64-v8a=true
+          architectures/x86=false
+          architectures/x86_64=false
+          version/code=1
+          version/name="1.0"
+          package/unique_name="com.brawlmemes.game"
+          package/name="Brawl Memes"
+          EOF
+
+      - name: Import Godot project
+        run: |
+          godot --headless --editor --path project --quit
+
+      - name: Build APK
+        run: |
+          mkdir -p project/build
+          godot --headless --path project --export-debug "Android" project/build/Brawl_Memes.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: BRAWL-MEMES-APK
+          path: project/build/Brawl_Memes.apk
